@@ -1,0 +1,70 @@
+---
+title: "Marvel Network"
+output: html_document
+---
+
+```{r}
+library(igraph)
+library(tidyverse)
+```
+
+```{r 点数据导入}
+nodes <- read_csv('../../../Kaggle/Marvel networks/nodes.csv') #表明每个点是hero还是comic
+nodes
+str(nodes)
+table(nodes$type) #6439个hero，12651个comic
+```
+
+```{r 边数据导入}
+edges <- read_csv('../../../Kaggle/Marvel networks/edges.csv')  #每个hero在什么comic中出现
+edges
+str(edges)
+length((unique(edges$hero)))  #6439
+length((unique(edges$comic))) #12651
+```
+
+```{r 点属性设置}
+#一个hero可能对应多个comic，随机取一条
+set.seed(1)
+edges %>% 
+  group_by(hero) %>% 
+  sample_n(1) -> edges_1
+edges_1 #每个hero对应1个comic
+```
+
+
+```{r 网络数据导入}
+hero_network <- read_csv('../../../Kaggle/Marvel networks/hero-network.csv')
+hero_network
+str(hero_network) #574467个关系,和理论总数579171相比缺失了一部分关系
+length(unique(hero_network$hero1))
+length(unique(hero_network$hero2))
+# hero_network %>% 
+#   left_join(edges_1, by = c("hero1" = "hero")) %>% 
+#   left_join(edges_1, by = c("hero2" = "hero")) %>% 
+#   rename(comic_1 = comic.x, comic_2 = comic.y) -> hero_network
+# hero_network
+```
+
+```{r 剔除无comic的hero记录}
+length(setdiff(hero_network$hero1, edges_1$hero)) #有3个不在egdes_1中
+length(setdiff(hero_network$hero2, edges_1$hero)) #有3个不在egdes_1中
+hero_network %>% 
+  inner_join(edges_1, by = c("hero1" = "hero")) %>% 
+  inner_join(edges_1, by = c("hero2" = "hero")) %>% 
+  select(hero1, hero2) -> hero_network_clear
+length(setdiff(hero_network_clear$hero1, edges_1$hero)) #完全匹配
+length(setdiff(hero_network_clear$hero2, edges_1$hero)) #完全匹配
+hero_network_clear
+```
+
+
+```{r 数据框转化为网络数据}
+net <- graph_from_data_frame(hero_network_clear, directed = FALSE, vertices = edges_1)
+net
+list.vertex.attributes(net)
+get.vertex.attribute(net, "comic", "LITTLE, ABNER")
+```
+
+
+
