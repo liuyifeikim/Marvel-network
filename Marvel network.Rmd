@@ -3,6 +3,9 @@ title: "Marvel Network"
 output: html_document
 ---
 
+待解决：
+重复关系剔除
+
 ```{r}
 library(igraph)
 library(tidyverse)
@@ -21,6 +24,10 @@ edges
 str(edges)
 length((unique(edges$hero)))  #6439
 length((unique(edges$comic))) #12651
+edges %>% 
+  group_by(hero) %>% 
+  count() %>% 
+  arrange(desc(n))
 ```
 
 ```{r 点属性设置}
@@ -39,11 +46,6 @@ hero_network
 str(hero_network) #574467个关系,和理论总数579171相比缺失了一部分关系
 length(unique(hero_network$hero1))
 length(unique(hero_network$hero2))
-# hero_network %>% 
-#   left_join(edges_1, by = c("hero1" = "hero")) %>% 
-#   left_join(edges_1, by = c("hero2" = "hero")) %>% 
-#   rename(comic_1 = comic.x, comic_2 = comic.y) -> hero_network
-# hero_network
 ```
 
 ```{r 剔除无comic的hero记录}
@@ -52,19 +54,64 @@ length(setdiff(hero_network$hero2, edges_1$hero)) #有3个不在egdes_1中
 hero_network %>% 
   inner_join(edges_1, by = c("hero1" = "hero")) %>% 
   inner_join(edges_1, by = c("hero2" = "hero")) %>% 
-  select(hero1, hero2) -> hero_network_clear
-length(setdiff(hero_network_clear$hero1, edges_1$hero)) #完全匹配
-length(setdiff(hero_network_clear$hero2, edges_1$hero)) #完全匹配
+  select(hero1, hero2) -> hero_network
+length(setdiff(hero_network$hero1, edges_1$hero)) #完全匹配
+length(setdiff(hero_network$hero2, edges_1$hero)) #完全匹配
 hero_network_clear
+```
+
+```{r 重复关系检查}
+hero_network %>% 
+  group_by(hero1, hero2) %>% 
+  count() %>% 
+  arrange(desc(n))   #存在大量重复关系
+
+hero_network %>% 
+  distinct()         #去重
+
+hero_network %>% 
+  distinct() %>% 
+  spread(hero1)
 ```
 
 
 ```{r 数据框转化为网络数据}
-net <- graph_from_data_frame(hero_network_clear, directed = FALSE, vertices = edges_1)
+net <- graph_from_data_frame(hero_network, directed = FALSE, vertices = edges_1)
 net
 list.vertex.attributes(net)
 get.vertex.attribute(net, "comic", "LITTLE, ABNER")
 ```
 
+```{r 网络基本信息}
+gorder(net)         #点数量
+gsize(net)          #边数量
+```
 
+
+```{r 点中心性分析}
+net %>% degree() %>% sort(decreasing = T) %>% head(10)               #度中心性
+net %>% betweenness() %>% sort(decreasing = T) %>% head(10)          #中介中心性
+net %>% closeness() %>% sort(decreasing = T) %>% head(10)            #接近中心性
+eigen_centrality(net)$vector %>% sort(decreasing = T) %>% head(10)   #特征向量中心性
+```
+
+
+```{r 网络距离}
+diameter(net)            #最长距离
+get_diameter(net)        #最长路径
+farthest_vertices(net)   #最长路径终点及距离
+mean_distance(net)       #平均距离
+```
+
+
+```{r 网络紧密及联通程度}
+edge_density(net)                   #网络密度
+reciprocity(net)                    #双向关系占比，无向图=1
+transitivity(net, type = "global")  #完整三角关系占比，也称为聚类系数
+```
+
+
+```{r 特定点的邻居}
+neighbors(net, v = "IRON MAN/TONY STARK")
+```
 
