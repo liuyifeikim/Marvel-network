@@ -4,9 +4,10 @@ output: html_document
 ---
 
 待解决：
+边权重设置
 同类对象聚集测试
 聚类测试
-可视化：ggraph、ggnet2、ggnetwork、network3D
+可视化：ggraph、ggnet2、ggnetwork、network3D、visNetwork
 
 ```{r}
 library(igraph)
@@ -40,15 +41,15 @@ edges %>%
 set.seed(1)
 edges %>% 
   group_by(hero) %>% 
-  sample_n(1) -> edges_1
-edges_1 #每个hero对应1个comic
+  sample_n(1) -> edges_1   #随机选择一条
+edges_1                    #每个hero对应1个comic
 ```
 
 
 ```{r 网络数据导入}
 hero_network <- read_csv('../../../Kaggle/Marvel networks/hero-network.csv')
 hero_network
-str(hero_network) #574467个关系,和理论总数579171相比缺失了一部分关系
+str(hero_network)                   #574467个关系,和理论总数579171相比缺失了一部分关系
 length(unique(hero_network$hero1))
 length(unique(hero_network$hero2))
 ```
@@ -59,17 +60,16 @@ length(setdiff(hero_network$hero2, edges_1$hero)) #有3个不在egdes_1中
 hero_network %>% 
   inner_join(edges_1, by = c("hero1" = "hero")) %>% 
   inner_join(edges_1, by = c("hero2" = "hero")) %>% 
-  select(hero1, hero2) -> hero_network
-length(setdiff(hero_network$hero1, edges_1$hero)) #完全匹配
-length(setdiff(hero_network$hero2, edges_1$hero)) #完全匹配
-hero_network_clear
+  select(hero1, hero2) -> hero_network_com
+length(setdiff(hero_network_com$hero1, edges_1$hero)) #完全匹配
+length(setdiff(hero_network_com$hero2, edges_1$hero)) #完全匹配
+hero_network_com
 ```
 
-```{r 重复关系检查}
-hero_network %>% 
-  distinct() -> hero_network
-hero_network_clear <- hero_network[!duplicated(t(apply(hero_network, 1, sort))),]
-hero_network_clear #删除两个hero相同的关系
+```{r 重复关系处理}
+hero_network_com %>% distinct() -> hero_network_com_dis
+hero_network_clear <- hero_network_com_dis[!duplicated(t(apply(hero_network_com_dis, 1, sort))),] #转换网络之前处理数据框
+hero_network_clear #删除两个hero相同的关系,165307
 ```
 
 
@@ -89,6 +89,18 @@ net
 list.vertex.attributes(net)
 get.vertex.attribute(net, "comic", "LITTLE, ABNER")
 ```
+
+```{r 重复关系处理方法2}
+net_origin <- graph_from_data_frame(hero_network_com, directed = FALSE) #先转为网络，再进行精简
+net_origin
+net_sim <- igraph::simplify(net_origin)  #去除重复关系和自连接
+net_sim #165295
+```
+
+```{r}
+E(net_sim)$weight
+```
+
 
 ```{r 网络基本信息}
 gorder(net)         #点数量
@@ -148,9 +160,11 @@ ego_size(net, nodes = "IRON MAN/TONY STARK")  #个体网络规模，= degree + 1
 
 ```{r 网络图可视化, fig.height=20, fig.width=20}
 iron_man_graph <- make_ego_graph(net, nodes = "IRON MAN/TONY STARK")[[1]]  #需要提取第一个要素
+iron_man_graph_100 <- induced_subgraph(iron_man_graph, degree(iron_man_graph) >= 100)  #按条件筛选对象
 iron_man_graph
-lc <- induced_subgraph(net, largest_cliques(net)[[1]])
-lc
+iron_man_graph_100
+#lc <- induced_subgraph(net, largest_cliques(net)[[1]])
+#lc
 ```
 
 
@@ -162,29 +176,28 @@ plot(iron_man_graph,
      vertex.label = NA,
      edge.size = 0.1)
 
-plot(lc, 
-     layout = layout_with_fr(lc),
-     vertex.size = 5,
+plot(iron_man_graph_100, 
+     layout = layout_with_fr(iron_man_graph_100),
+     vertex.size = 2,
      vertex.color = "blue",
-     vertex.label.cex = 1,
+     vertex.label = NA,
      edge.size = 0.1)
 ```
 
 ```{r 网络图可视化：ggraph方法, fig.height=15, fig.width=20}
-ggraph(lc, layout = "fr") +
-  geom_edge_link() +
-  geom_node_point() +
-  geom_node_text(aes(label = name),color = "blue") +
-  theme(axis.line = element_blank(),
-        axis.text = element_blank(),
-        axis.title = element_blank())
-
 ggraph(iron_man_graph, layout = "fr") +
   geom_edge_link() +
-  geom_node_point(color = "blue") +
-  geom_node_text(aes(label = name),color = "blue") +
-  theme(axis.line = element_blank(),
-        axis.text = element_blank(),
-        axis.title = element_blank())
+  geom_node_point() +
+  theme_graph()    
+
+ggraph(iron_man_graph_100, layout = "fr") +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name), color = "blue") +
+  theme_graph()
+```
+
+```{r 同类点的聚集程度}
+assortativity_degree(net, directed = FALSE)
 ```
 
