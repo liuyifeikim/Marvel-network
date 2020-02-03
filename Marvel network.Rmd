@@ -54,22 +54,49 @@ length(unique(hero_network$hero1))
 length(unique(hero_network$hero2))
 ```
 
-```{r 剔除无comic的hero记录}
+```{r 清理edge1数据}
+setdiff(hero_network$hero1, edges_1$hero)
+setdiff(hero_network$hero2, edges_1$hero)
 length(setdiff(hero_network$hero1, edges_1$hero)) #有3个不在egdes_1中
 length(setdiff(hero_network$hero2, edges_1$hero)) #有3个不在egdes_1中
-hero_network %>% 
-  inner_join(edges_1, by = c("hero1" = "hero")) %>% 
-  inner_join(edges_1, by = c("hero2" = "hero")) %>% 
-  select(hero1, hero2) -> hero_network_com
-length(setdiff(hero_network_com$hero1, edges_1$hero)) #完全匹配
-length(setdiff(hero_network_com$hero2, edges_1$hero)) #完全匹配
-hero_network_com
+
+edges_1 %>% filter(str_detect(hero, "SABRE")) %>% group_by(hero) %>% count()
+hero_network %>% filter(str_detect(hero1, "SABRE")) %>% group_by(hero1) %>% count()
+edges_1 %>% filter(str_detect(hero, "BLADE")) %>% group_by(hero) %>% count()
+hero_network %>% filter(str_detect(hero1, "BLADE")) %>% group_by(hero1) %>% count()
+edges_1 %>% filter(str_detect(hero, "SPIDER-MAN/PETER PAR")) %>% group_by(hero) %>% count()
+hero_network %>% filter(str_detect(hero1, "SPIDER-MAN/PETER PAR")) %>% group_by(hero1) %>% count()
+
+edges_1 %>% 
+  mutate(hero_c = str_replace_all(hero, c("^SABRE/$" = "SABRE", 
+                                          "^BLADE/$" = "BLADE", 
+                                          "^SPIDER-MAN/PETER PARKER$" = "SPIDER-MAN/PETER PAR"))) %>% 
+  ungroup() %>% 
+  select(-hero) %>% 
+  rename(hero = hero_c) %>% 
+  select(hero, comic) -> edges_1_clear
+edges_1_clear
+edges_1_clear %>% filter(str_detect(hero, "SABRE")) %>% group_by(hero) %>% count()
+edges_1_clear %>% filter(str_detect(hero, "BLADE")) %>% group_by(hero) %>% count()
+edges_1_clear %>% filter(str_detect(hero, "SPIDER-MAN/PETER PAR")) %>% group_by(hero) %>% count()
+
+# hero_network %>% 
+#   inner_join(edges_1, by = c("hero1" = "hero")) %>% 
+#   inner_join(edges_1, by = c("hero2" = "hero")) %>% 
+#   select(hero1, hero2) -> hero_network_com
+# hero_network_com
+
+setdiff(hero_network$hero1, edges_1_clear$hero)
+setdiff(hero_network$hero2, edges_1_clear$hero)
+length(setdiff(hero_network$hero1, edges_1_clear$hero))
+length(setdiff(hero_network$hero2, edges_1_clear$hero))
 ```
 
 ```{r 重复关系处理}
-hero_network_com %>% distinct() -> hero_network_com_dis
-hero_network_clear <- hero_network_com_dis[!duplicated(t(apply(hero_network_com_dis, 1, sort))),] #转换网络之前处理数据框
-hero_network_clear #删除两个hero相同的关系,165307
+hero_network %>% distinct() -> hero_network_dis  #转换网络之前处理数据框
+hero_network_clear <- hero_network_dis[!duplicated(t(apply(hero_network_dis, 1, sort))),] %>% 
+  filter(hero1 != hero2) #删除两个hero相同的关系,167100
+hero_network_clear 
 ```
 
 
@@ -84,20 +111,21 @@ hero_network_clear #删除两个hero相同的关系,165307
 
 
 ```{r 数据框转化为网络数据}
-net <- graph_from_data_frame(hero_network_clear, directed = FALSE, vertices = edges_1)
+net <- graph_from_data_frame(hero_network_clear, directed = FALSE, vertices = edges_1_clear) #第一列一定要是vertex的名称，否则会报错
 net
 list.vertex.attributes(net)
 get.vertex.attribute(net, "comic", "LITTLE, ABNER")
 ```
 
 ```{r 重复关系处理方法2}
-net_origin <- graph_from_data_frame(hero_network_com, directed = FALSE) #先转为网络，再进行精简
+net_origin <- graph_from_data_frame(hero_network, directed = FALSE) #先转为网络，再进行精简
 net_origin
-net_sim <- igraph::simplify(net_origin)  #去除重复关系和自连接
-net_sim #165295
+net_sim <- igraph::simplify(net_origin)  #去除重复关系(在无向图中不论位置)和自连接，与方法1相差了自循环的12条，比方法1更高效
+net_sim #167100
 ```
 
 ```{r}
+E(net_origin)$weight
 E(net_sim)$weight
 ```
 
@@ -199,5 +227,94 @@ ggraph(iron_man_graph_100, layout = "fr") +
 
 ```{r 同类点的聚集程度}
 assortativity_degree(net, directed = FALSE)
+```
+
+
+```{r 建立带有权重的新网络}
+hero_network %>% 
+  group_by(hero1, hero2) %>% 
+  count() %>% 
+  rename(weight = n) -> hero_network_weight
+hero_network_weight
+
+net_weight <- graph_from_data_frame(hero_network_weight, directed = FALSE)
+net_weight
+summary(E(net_weight)$weight)
+list.vertex.attributes(net_weight)
+list.edge.attributes(net_weight)
+
+net_weight_sim <- igraph::simplify(net_weight) #简化网络，排除多次出现的关系以及自循环
+net_weight_sim
+summary(E(net_weight_sim)$weight)
+```
+
+```{r 网络转为数据框}
+net_weight_df <- get.data.frame(net_weight, what = "edges") #默认为edges
+net_weight_df
+net_weight_df %>% arrange(desc(weight))
+
+net_weight_sim_df <- get.data.frame(net_weight_sim) 
+net_weight_sim_df %>% arrange(desc(weight))
+```
+
+```{r 利用点来源表生成网络}
+edges %>%
+  group_by(comic) %>%
+  filter(n() > 1) %>%          
+  split(.$comic) %>%          #按照comic进行分割
+  map(., 1) %>%               #选择第1列
+  map(~combn(.x, m = 2)) %>%  #在每个comic中用combin
+  map(~t(.x)) %>%             #矩阵倒置
+  map_dfr(as_tibble) %>%      #变为tibble
+  rename(hero1 = V1, hero2 = V2) -> edges_hero_network
+edges_hero_network #579,171种组合
+
+edges %>% 
+  group_by(comic) %>% 
+  count() %>% 
+  filter(n > 1) %>% 
+  mutate(com_num = n * (n - 1) / 2) %>% 
+  ungroup() %>% 
+  summarise(total_com_num = sum(com_num)) #579171种组合
+```
+
+```{r 转换为有权重的网络}
+edges_hero_network %>% 
+  group_by(hero1, hero2) %>% 
+  count() %>% 
+  rename(weight = n) -> edges_hero_network_weight
+edges_hero_network_weight
+edges_net_weight <- graph_from_data_frame(edges_hero_network_weight, directed = FALSE)
+edges_net_weight
+edges_net_weight_sim <- igraph::simplify(edges_net_weight) #将所有自循环和相同关系（不论位置和权重）都剔除，权重会合并在一起
+edges_net_weight_sim
+summary(E(edges_net_weight_sim)$weight)
+```
+
+```{r 网络转化计数测试}
+test <- data.frame(hero1 = c("a", "a", "b" , "c"), hero2 = c("b", "b", "a", "c"))
+test %>% group_by(hero1, hero2) %>% count() %>% rename(weight = n) -> test_weight
+test           #无权重
+test_weight    #有权重
+
+test_net_u <- graph_from_data_frame(test, directed = F)
+test_net_u
+igraph::simplify(test_net_u)
+
+test_net_d <- graph_from_data_frame(test, directed = T)
+test_net_d
+igraph::simplify(test_net_d)
+
+test_net_u_w <- graph_from_data_frame(test_weight, directed = F)
+test_net_u_w
+igraph::simplify(test_net_u_w)
+E(test_net_u_w)$weight
+E(igraph::simplify(test_net_u_w))$weight
+
+test_net_d_w <- graph_from_data_frame(test_weight, directed = T)
+test_net_d_w
+igraph::simplify(test_net_d_w)
+E(test_net_d_w)$weight
+E(igraph::simplify(test_net_d_w))$weight
 ```
 
